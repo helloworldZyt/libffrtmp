@@ -11,15 +11,15 @@
 #define RTMPCAPI    extern
 
 typedef enum _rtmp_client_statu_code_ {
-    stacode_ffmpeg_alloc=-5,
-    stacode_network_failed=-4,
-    stacode_ffmpeg_connect=-3,
-    stacode_ffmpeg_failed=-2,
-    stacode_syscall_failed=-1,  // malloc、new、socket etc.
-    stacode_success=0,
-    stacode_param_wrong=1,
-    stacode_url_empty=2,        // url为空
-    stacode_stream_timeout=3,   // 连接或者接收data超时
+    errcode_ffmpeg_alloc=-5,
+    errcode_network_failed=-4,
+    errcode_ffmpeg_connect=-3,
+    errcode_ffmpeg_failed=-2,
+    errcode_syscall_failed=-1,  // malloc、new、socket etc.
+    errcode_success=0,
+    errcode_param_wrong=1,
+    errcode_url_empty=2,        // url为空
+    errcode_stream_timeout=3,   // 连接或者接收data超时
 } RtmpClientCode;
 
 typedef int (*RtmpClientOnRecv)(void *contex, void *user_data, unsigned char *buffer, int length, int video);

@@ -295,7 +295,7 @@ int adts_header(unsigned char *buf, int size, int type, int rate, int channels)
     return 0;  
 }
 
-int start_pull(rtmp_client *this0, void *user_data, const char *url)
+int walker_running(rtmp_client *this0, void *user_data, const char *url)
 {
     RWDataContext *contex;
     AVFormatContext *ifmt_ctx = NULL;
@@ -319,17 +319,17 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
     FFRTMP_LOG(LOG_DBG, "[ffclient][%p]avformat_network_init ...\n", this0);
     if (avformat_network_init() < 0 ) {
         FFRTMP_LOG(LOG_ERR, "[ffclient]Failed to init ffmpeg network!\n");
-        return stacode_network_failed;
+        return errcode_network_failed;
     }
     ifmt_ctx = avformat_alloc_context();
     if (ifmt_ctx == NULL) {
         FFRTMP_LOG(LOG_ERR, "[ffclient]Failed to init ffmpeg alloc!\n");
-        return stacode_ffmpeg_alloc;
+        return errcode_ffmpeg_alloc;
     }
     // 读数据中断回调
     contex = new RWDataContext;
     if (contex == NULL) {
-        status = stacode_syscall_failed;
+        status = errcode_syscall_failed;
         FFRTMP_LOG(LOG_ERR, "[ffclient]memery less!\n");
         goto end;
     }
@@ -346,10 +346,10 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
     FFRTMP_LOG(LOG_DBG, "[ffclient][%p]avformat_open_input:ctx %p, timeout %d!\n", this0, ifmt_ctx, contex->time_out);
     if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, &opts)) < 0) {
         FFRTMP_LOG(LOG_ERR, "[ffclient] Could't connect: %s!\n", url);
-        return stacode_ffmpeg_connect;
+        return errcode_ffmpeg_connect;
     }
     if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
-        status = stacode_ffmpeg_failed;
+        status = errcode_ffmpeg_failed;
         FFRTMP_LOG(LOG_ERR, "[ffclient]Failed to retrieve input stream information\n");
         goto end;
     }
@@ -384,7 +384,7 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
     //拉流
     while (this0->client_runing)
     {
-        AVStream *in_stream, *out_stream;
+        AVStream *in_stream;
         //Get an AVPacket
         contex->last_time = time(NULL);
         ret = av_read_frame(ifmt_ctx, pkt);
@@ -471,11 +471,11 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
 
     if (ret < 0) {
         FFRTMP_LOG(LOG_DBG, "[ffclient]Finishing error %lld\n", ret);
-        status = stacode_ffmpeg_failed;
+        status = errcode_ffmpeg_failed;
     }
     if (ret > 0) {
         FFRTMP_LOG(LOG_DBG, "[ffclient]Finishing timeout %lld\n", ret);
-        status = stacode_stream_timeout;
+        status = errcode_stream_timeout;
     }
     
     end:
@@ -500,13 +500,13 @@ void func_client_run(void *instance, void *arg)
 
     if (this0->client_url.empty()) {
         if (cb->onFinish) {
-            cb->onFinish((void *)this0, (void *)this0->client_user_data, stacode_url_empty);
+            cb->onFinish((void *)this0, (void *)this0->client_user_data, errcode_url_empty);
         }
         return ;
     }
     this0->client_runing++;
 
-    int status = start_pull(this0, (void *)this0->client_user_data, this0->client_url.c_str());
+    int status = walker_running(this0, (void *)this0->client_user_data, this0->client_url.c_str());
 
     if (cb->onFinish) {
         cb->onFinish((void *)this0, (void *)this0->client_user_data, 0);
@@ -551,7 +551,6 @@ void *rtmp_client_start(void *user_data, const char *url, int open_timeout, int 
         //
         ffrtmp_log_init(0, 0, static_dbg_file);
 
-        rtmclDbg(ins, "[ffclient]Initialize ...\n");
         FFRTMP_LOG(LOG_DBG, "[ffclient]Initialize ...\n");
         // client_manage = thread(func_client_manage);
     }
@@ -559,7 +558,7 @@ void *rtmp_client_start(void *user_data, const char *url, int open_timeout, int 
     {
         threads_inited--;
     }
-    rtmclDbg(ins, "[ffclient]new rtmp client: %s %s!\n", url, ins ? "success" : "failed");
+
     FFRTMP_LOG(LOG_DBG, "[ffclient]new rtmp client: %s %s!\n", url, ins ? "success" : "failed");
 
     return (void *)ins;
@@ -569,7 +568,6 @@ void rtmp_client_stop(void *contex)
 {
     rtmp_client *client = (rtmp_client *)contex;
 
-    rtmclDbg(client, "[ffclient]stop rtmp client: %s!\n", client ? client->client_url.c_str() : "-?-");
     FFRTMP_LOG(LOG_DBG, "[ffclient]stop rtmp client: %s!\n", client ? client->client_url.c_str() : "-?-");
     if (client)
     {

@@ -207,7 +207,6 @@ int main(int argc, char* argv[])
         UserTestData *udata = new UserTestData;
 
         if (udata) {
-            
             memset(udata->videofile, 0, sizeof(udata->videofile));
             snprintf(udata->videofile, sizeof(udata->videofile) -1, "/data/user%d.h264", i);
             memset(udata->audiofile, 0, sizeof(udata->audiofile));
@@ -227,7 +226,6 @@ int main(int argc, char* argv[])
     }
 
     if (num == 0) {
-        
         UserTestData *udata = new UserTestData;
 
         if (udata) {
@@ -257,7 +255,6 @@ int main(int argc, char* argv[])
 
             test_running = 5;
         }
-
         
     }
 
