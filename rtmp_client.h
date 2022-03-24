@@ -23,14 +23,22 @@ typedef enum _rtmp_client_statu_code_ {
 } RtmpClientCode;
 
 typedef int (*RtmpClientOnRecv)(void *contex, void *user_data, unsigned char *buffer, int length, int video);
+typedef int (*RtmpClientOnAudioReport)(void *user_data, int profile, int channels, int sample_rate,
+    int format, int frate, const char *codec);
+typedef int (*RtmpClientOnVideoReport)(void *user_data, int profile, int width, int height,
+    int format, int frate, const char *codec);
+typedef int (*RtmpClientOnStreamReport)(void *user_data, int video_bitrate, int audio_bitrate);
 typedef int (*RtmpClientOnFinish)(void *contex, void *user_data, int status);
 typedef int (*RtmpClientOnDebug)(const char *buffer);
 
 typedef struct rtmp_client_callback_st
 {
-    RtmpClientOnRecv onRecv;            // 接收数据回调
-    RtmpClientOnFinish onFinish;        // 异常或正常结束，回调此函数
-    RtmpClientOnDebug onDebug;            // 输出日志
+    RtmpClientOnRecv onRecv;                  // 接收数据回调
+    RtmpClientOnAudioReport onAudioReport;
+    RtmpClientOnVideoReport onVideoReport;
+    RtmpClientOnStreamReport onStreamReport;
+    RtmpClientOnFinish onFinish;              // 异常或正常结束，回调此函数
+    RtmpClientOnDebug onDebug;                // 输出日志
 } RtmpClientCallback;
 
 extern "C" {

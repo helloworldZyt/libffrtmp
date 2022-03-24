@@ -73,6 +73,9 @@ client_runing(0), open_timeout(10), recv_timeout(3)
     {
         client_cb->onFinish = cb ? cb->onFinish : NULL;
         client_cb->onRecv = cb ? cb->onRecv : NULL;
+        client_cb->onAudioReport = cb ? cb->onAudioReport : NULL;
+        client_cb->onVideoReport = cb ? cb->onVideoReport : NULL;
+        client_cb->onStreamReport = cb ? cb->onStreamReport : NULL;
         client_cb->onDebug = cb ? cb->onDebug : NULL;
     }
     client_user_data = user_data;
@@ -295,6 +298,20 @@ int adts_header(unsigned char *buf, int size, int type, int rate, int channels)
     return 0;  
 }
 
+const char *rtmp_codec_name(int codec_id)
+{
+    switch (codec_id)
+    {
+    // audio
+    case AV_CODEC_ID_AAC: { return "acc"; break; }
+
+    // video
+    case AV_CODEC_ID_H264: { return "h264"; break; }
+
+    default: { return ""; break; }
+    }
+}
+
 int walker_running(rtmp_client *this0, void *user_data, const char *url)
 {
     RWDataContext *contex;
@@ -303,13 +320,18 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
     const char *in_filename = NULL;
     int ret, i;
     int videoindex=-1, audioindex=-1;
-    int need_to_annexb = 0;
-    int status = 0;
+    int need_to_annexb = 0, status = 0;
     RtmpClientCallback *cb = this0 ? this0->client_cb : NULL;
     // 定义音频基本参数 profile 选择和通道数 采样率
-    int aac_type = 0;//fmt_ctx->streams[1]->codecpar->profile;
-    int channels = 0;//fmt_ctx->streams[1]->codecpar->channels;
-    int sample_rate= 0;//fmt_ctx->streams[1]->codecpar->sample_rate;
+    int audio_changed = 0, video_changed = 0, stream_changed = 0;
+    int aac_type = 0, channels = 0, sample_rate= 0; // audio only
+    int video_type = 0, width = 0, height = 0;   // video only
+    // video: the pixel format, enum AVPixelFormat. AV_PIX_FMT_YUV420P=0
+    // audio: the sample format, enum AVSampleFormat. AV_SAMPLE_FMT_S32P=8
+    int vcodec_format = 0, acodec_format = 0;
+    int vbit_rate = 0, abit_rate = 0;
+    int vcodec_id = 0, acodec_id = 0;
+    int v_frame_rate = 0, a_frame_rate = 0;
     AVDictionary* opts = NULL;
 
     in_filename  = url;
@@ -354,22 +376,17 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
         goto end;
     }
 
-    // 
-    FFRTMP_LOG(LOG_DBG, "[ffclient][%p]Which audio and video index by %p...\n", this0, ifmt_ctx);
+    // Read Rtream Info
     for(i=0; i<ifmt_ctx->nb_streams; i++) {
         if(ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO){
             videoindex=i;
         }
         else if (ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_AUDIO) {
             audioindex=i;
-            aac_type = ifmt_ctx->streams[i]->codecpar->profile;
-            channels = ifmt_ctx->streams[i]->codecpar->channels;
-            sample_rate= ifmt_ctx->streams[i]->codecpar->sample_rate;
         }
     }
-
-    FFRTMP_LOG(LOG_DBG, "[ffclient]Got vindex %d, aindex %d", videoindex, audioindex);
-    FFRTMP_LOG(LOG_DBG, "[ffclient]Got aac_type %d, channels %d, rate %d", aac_type, channels, sample_rate);
+    FFRTMP_LOG(LOG_DBG, "[ffclient][%p]Which audio and video index by %p...\n", this0, ifmt_ctx);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got vindex %d, aindex %d\n", videoindex, audioindex);
 
     av_dump_format(ifmt_ctx, 0, in_filename, 0);
     
@@ -380,6 +397,47 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
 
     contex->time_out = this0->recv_timeout;
     FFRTMP_LOG(LOG_DBG, "[ffclient][%p]Streaming start recv: time out %d...\n", this0, contex->time_out);
+
+    for(i=0; i<ifmt_ctx->nb_streams; i++) {
+        if(ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO){
+            video_type = ifmt_ctx->streams[i]->codecpar->profile;
+            width = ifmt_ctx->streams[i]->codecpar->width;
+            height = ifmt_ctx->streams[i]->codecpar->height;
+            vbit_rate = ifmt_ctx->streams[i]->codecpar->bit_rate;
+            vcodec_id = ifmt_ctx->streams[i]->codecpar->codec_id;
+            if (ifmt_ctx->streams[i]->r_frame_rate.den)
+                v_frame_rate = ifmt_ctx->streams[i]->r_frame_rate.num/ifmt_ctx->streams[i]->r_frame_rate.den;
+            vcodec_format = ifmt_ctx->streams[i]->codecpar->format;
+        }
+        else if (ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_AUDIO) {
+            aac_type = ifmt_ctx->streams[i]->codecpar->profile;
+            channels = ifmt_ctx->streams[i]->codecpar->channels;
+            sample_rate = ifmt_ctx->streams[i]->codecpar->sample_rate;
+            abit_rate = ifmt_ctx->streams[i]->codecpar->bit_rate;
+            acodec_id = ifmt_ctx->streams[i]->codecpar->codec_id;
+            if (ifmt_ctx->streams[i]->r_frame_rate.den)
+                a_frame_rate = ifmt_ctx->streams[i]->r_frame_rate.num/ifmt_ctx->streams[i]->r_frame_rate.den;
+            acodec_format = ifmt_ctx->streams[i]->codecpar->format;
+        }
+    }
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got aac_type %d, channels %d, rate %d\n", aac_type, channels, sample_rate);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got acodec_id %x, acodec_format %d, frate %d\n",
+        acodec_id, acodec_format, a_frame_rate);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got type %d, width %d, height %d\n", video_type, width, height);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got vcodec_id %d, vcodec_format %d, frate %d\n",
+        vcodec_id, vcodec_format, v_frame_rate);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got abit_rate %d, vbit_rate %d\n", abit_rate, vbit_rate);
+    if (cb && cb->onVideoReport) {
+        cb->onVideoReport(user_data, video_type, width, height, vcodec_format,
+            v_frame_rate, rtmp_codec_name(vcodec_id));
+    }
+    if (cb && cb->onAudioReport) {
+        cb->onAudioReport(user_data, aac_type, channels, sample_rate, acodec_format,
+            a_frame_rate, rtmp_codec_name(acodec_id));
+    }
+    if (cb && cb->onStreamReport) {
+        cb->onStreamReport(user_data, vbit_rate, abit_rate);
+    }
 
     //拉流
     while (this0->client_runing)
@@ -397,6 +455,26 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
         if (ifmt_ctx->pb && ifmt_ctx->pb->eof_reached) {
             FFRTMP_LOG(LOG_DBG, "[ffclient]Stream disconnected!\n");
             break;
+        }
+
+        if (stream_changed == 0) {
+            for(i=0; i<ifmt_ctx->nb_streams; i++) {
+                if(ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO){
+                    stream_changed += (vbit_rate == ifmt_ctx->streams[i]->codecpar->bit_rate) ? 0 : 1;
+                    vbit_rate = ifmt_ctx->streams[i]->codecpar->bit_rate;
+                }
+                else if (ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_AUDIO) {
+                    stream_changed += (abit_rate == ifmt_ctx->streams[i]->codecpar->bit_rate) ? 0 : 1;
+                    abit_rate = ifmt_ctx->streams[i]->codecpar->bit_rate;
+                }
+            }
+        }
+        if (stream_changed) {
+            FFRTMP_LOG(LOG_DBG, "[ffclient]Stream vbit_rate %d, vcodec_id %d changed!\n", vbit_rate, vcodec_id);
+            if (stream_changed && ret == 0) {
+                cb->onStreamReport(user_data, vbit_rate, abit_rate);
+            }
+            stream_changed = 0;
         }
 
         //读出的帧判断是否是视频帧

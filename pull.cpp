@@ -69,6 +69,13 @@ int callback_on_recv(void *contex, void *user_data, unsigned char *buffer, int l
     return size;
 }
 
+int callback_OnAudioReport(void *user_data, int profile, int channels, int rate)
+{}
+int callback_OnVideoReport(void *user_data, int profile, int width, int height)
+{}
+int callback_OnStreamReport(void *user_data, int video_bitrate, int audio_bitrate)
+{}
+
 int callback_on_finish(void *contex, void *user_data, int status)
 {
     UserTestData *udata = (UserTestData *)user_data;
@@ -81,7 +88,14 @@ int callback_on_debug(const char *buffer)
     if (buffer) printf("%s\n", buffer);
 }
 
-RtmpClientCallback user_callback = {callback_on_recv, callback_on_finish, callback_on_debug};
+RtmpClientCallback user_callback = {
+    callback_on_recv,
+    callback_OnAudioReport,
+    callback_OnVideoReport,
+    callback_OnStreamReport,
+    callback_on_finish,
+    callback_on_debug
+};
 
 void *walker_client(void *arg)
 {
@@ -176,7 +190,7 @@ int main(int argc, char* argv[])
     pthread_t *walkers_thr;
     int ret = 0, num = 0, i = 0;
     void *retval;
-    const char *stream_url = "rtmp://10.200.198.75:1935/live/test00";
+    const char *stream_url = "rtmp://localhost:1935/live/test11?username=amplesky&&password=amplesky";
     int running = 0, timeout = 0;
     void *contex = NULL;
 
