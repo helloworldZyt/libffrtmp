@@ -139,7 +139,7 @@ extern "C"
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 #include <libavutil/dict.h>
-#include <libavcodec/bsf.h>
+//#include <libavcodec/bsf.h>
 #include <libavcodec/adts_parser.h>
 #include <libavutil/log.h>
 #include <libavformat/avio.h>
@@ -348,7 +348,6 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
     }
 
     //Input
-    
     // av_dict_set(&opts, "stimeout", "3000000", 0);//单位 如果是http:ms  如果是udp:s // 测试过的是 3s
     // av_dict_set(&opts, "rw_timeout", "10000", 0);//单位:ms
     FFRTMP_LOG(LOG_DBG, "[ffclient][%p]avformat_open_input:ctx %p, timeout %d!\n", this0, ifmt_ctx, contex->time_out);
@@ -362,12 +361,11 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
         goto end;
     }
 
-    //？ ctx=contex
+    // 
     FFRTMP_LOG(LOG_DBG, "[ffclient][%p]Which audio and video index by %p...\n", this0, ifmt_ctx);
     for(i=0; i<ifmt_ctx->nb_streams; i++) {
         if(ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO){
             videoindex=i;
-            // break;
         }
         else if (ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_AUDIO) {
             audioindex=i;

@@ -135,7 +135,7 @@ void *walker_doggy(void *arg)
     char rcvbuf[5120];
     struct pollfd fds[5] = {0};
 	ssize_t rcvlen = 0;
-	int num = 0, i = 0, ret;
+	int num = 0, cnt = 0, ret;
 
     for(;;) {
 		num	= 0;
@@ -147,6 +147,7 @@ void *walker_doggy(void *arg)
 
         if (*running == 0) break;
         // if (test_running == 0) break;
+        if ((*running > 1) && (cnt > *running)) break;
 
 		ret = poll(fds, num, 3000); // 3s
 		if (0 > ret) {
@@ -158,6 +159,7 @@ void *walker_doggy(void *arg)
 			}
 		} else if (0 == ret) {
 			printf("[doggy]Wait guest timeout %d %d!\n", test_running, *running); 
+            cnt++;
 			continue;
 		}
         // TODO: something
@@ -176,6 +178,7 @@ int main(int argc, char* argv[])
     void *retval;
     const char *stream_url = "rtmp://10.200.198.75:1935/live/test00";
     int running = 0, timeout = 0;
+    void *contex = NULL;
 
     num = 1;
 
@@ -191,7 +194,7 @@ int main(int argc, char* argv[])
     } else {
         num = 1;
     }
-    if (num <= 0) {
+    if (num < 0) {
         TestDbg(TEST_DBG, "Param error!\n");
         exit(0);
     }
@@ -223,11 +226,50 @@ int main(int argc, char* argv[])
         }
     }
 
+    if (num == 0) {
+        
+        UserTestData *udata = new UserTestData;
+
+        if (udata) {
+            FILE* out_fd = fopen("/data/user.h264", "wb");
+            FILE* aout_fd = fopen("/data/user.aac", "wb");
+
+            memset(udata->videofile, 0, sizeof(udata->videofile));
+            snprintf(udata->videofile, sizeof(udata->videofile) -1, "/data/user.h264");
+            memset(udata->audiofile, 0, sizeof(udata->audiofile));
+            snprintf(udata->audiofile, sizeof(udata->audiofile) -1, "/data/user.aac");
+            memset(udata->url, 0, sizeof(udata->url));
+            snprintf(udata->url, sizeof(udata->url) -1, "%s", stream_url);
+
+            udata->vfs = out_fd;
+            udata->afs = aout_fd;
+            udata->video_cnt = 0;
+            udata->audio_cnt = 0;
+            udata->idx = 0;
+            udata->running = &test_running;
+            udata->timeout = 0;
+
+            TestDbg(TEST_DBG, "[stream%d]video file %s, audio file %s\n", udata->idx,
+                udata->videofile, udata->audiofile);
+
+            contex = rtmp_client_start(udata, udata->url, udata->timeout ? udata->timeout + 3 : 0,
+                udata->timeout, &user_callback);
+
+            test_running = 5;
+        }
+
+        
+    }
+
     ret = pthread_create(&watch_doggy, NULL, walker_doggy, &test_running);
     if (ret < 0) {
         return 0;
     }
     
     pthread_join(watch_doggy, &retval);
+
+    if (contex) {
+        rtmp_client_stop(contex);
+    }
     return retval;
 }
