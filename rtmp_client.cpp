@@ -298,18 +298,12 @@ int adts_header(unsigned char *buf, int size, int type, int rate, int channels)
 int start_pull(rtmp_client *this0, void *user_data, const char *url)
 {
     RWDataContext *contex;
-    const AVOutputFormat *ofmt = NULL;
-    //Input AVFormatContext and Output AVFormatContext
-    AVFormatContext *ifmt_ctx = NULL, *ofmt_ctx = NULL;
+    AVFormatContext *ifmt_ctx = NULL;
     AVPacket *pkt;
-    const char *in_filename, *out_filename;
+    const char *in_filename = NULL;
     int ret, i;
     int videoindex=-1, audioindex=-1;
-    int frame_index=0;
-    int need_flv = 0;
     int need_to_annexb = 0;
-    char output[1024] = {0};
-    int oplen = 0;
     int status = 0;
     RtmpClientCallback *cb = this0 ? this0->client_cb : NULL;
     // 定义音频基本参数 profile 选择和通道数 采样率
@@ -319,7 +313,6 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
     AVDictionary* opts = NULL;
 
     in_filename  = url;
-    out_filename = "receive.flv";
     
     // av_register_all();
     //Network
@@ -375,76 +368,10 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
         }
     }
 
-    oplen = snprintf(output, sizeof(output), "Got vindex %d, aindex %d", videoindex, audioindex);
-    output[oplen]=0;
-    FFRTMP_LOG(LOG_DBG, "[ffclient]%s\n", output);
-    if (cb && cb->onDebug) cb->onDebug(output);output[oplen]=0;
-    oplen = snprintf(output, sizeof(output), "Got aac_type %d, channels %d, rate %d", aac_type, channels, sample_rate);
-    output[oplen]=0;
-    FFRTMP_LOG(LOG_DBG, "[ffclient]%s\n", output);
-    if (cb && cb->onDebug) cb->onDebug(output);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got vindex %d, aindex %d", videoindex, audioindex);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got aac_type %d, channels %d, rate %d", aac_type, channels, sample_rate);
 
     av_dump_format(ifmt_ctx, 0, in_filename, 0);
-
-    //Output
-    if (need_flv)
-    {
-         avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_filename); //RTMP
-        if (!ofmt_ctx) {
-            FFRTMP_LOG(LOG_ERR, "Could not create output context\n");
-            ret = AVERROR_UNKNOWN;
-            status = stacode_ffmpeg_failed;
-            goto end;
-        }
-        ofmt = ofmt_ctx->oformat;
-        for (i = 0; i < ifmt_ctx->nb_streams; i++) {
-            //Create output AVStream according to input AVStream
-            AVStream *in_stream = ifmt_ctx->streams[i];
-            //AVStream *out_stream = avformat_new_stream(ofmt_ctx, in_stream->codec->codec);
-            const AVCodec *codec = avcodec_find_decoder(in_stream->codecpar->codec_id);
-            AVStream *out_stream = avformat_new_stream(ofmt_ctx , codec);
-
-            if (!out_stream) {
-                FFRTMP_LOG(LOG_ERR, "Failed allocating output stream\n");
-                ret = AVERROR_UNKNOWN;
-                goto end;
-            }
-
-            AVCodecContext *p_codec_ctx = (AVCodecContext *)avcodec_alloc_context3(codec);
-            ret = avcodec_parameters_to_context(p_codec_ctx , (const AVCodecParameters *)in_stream->codecpar);
-
-            //Copy the settings of AVCodecContext
-            if (ret < 0) {
-                FFRTMP_LOG(LOG_ERR, "Failed to copy context from input to output stream codec context\n");
-                goto end;
-            }
-            p_codec_ctx->codec_tag = 0;
-            if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER)
-                p_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-            ret = avcodec_parameters_from_context(out_stream->codecpar, p_codec_ctx);
-            if(ret < 0){
-                av_log(NULL , AV_LOG_ERROR , "eno:[%d] error to paramters codec paramter \n" , ret);
-            }
-        }
-
-        //Dump Format------------------
-        av_dump_format(ofmt_ctx, 0, out_filename, 1);
-        //Open output URL
-        if (!(ofmt->flags & AVFMT_NOFILE)) {
-            ret = avio_open(&ofmt_ctx->pb, out_filename, AVIO_FLAG_WRITE);
-            if (ret < 0) {
-                FFRTMP_LOG(LOG_DBG, "Could not open output URL '%s'", out_filename);
-                goto end;
-            }
-        }
-        //Write file header
-        ret = avformat_write_header(ofmt_ctx, NULL);
-        if (ret < 0) {
-            FFRTMP_LOG(LOG_DBG, "Error occurred when opening output URL\n");
-            goto end;
-        }
-    }
-   
     
     //分配packet
     pkt = av_packet_alloc();
@@ -470,30 +397,6 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
         if (ifmt_ctx->pb && ifmt_ctx->pb->eof_reached) {
             FFRTMP_LOG(LOG_DBG, "[ffclient]Stream disconnected!\n");
             break;
-        }
-        if (need_flv) {
-            in_stream  = ifmt_ctx->streams[pkt->stream_index];
-            out_stream = ofmt_ctx->streams[pkt->stream_index];
-            /* copy packet */
-            //Convert PTS/DTS
-            pkt->pts = av_rescale_q_rnd(pkt->pts, in_stream->time_base, out_stream->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-            pkt->dts = av_rescale_q_rnd(pkt->dts, in_stream->time_base, out_stream->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-            pkt->duration = av_rescale_q(pkt->duration, in_stream->time_base, out_stream->time_base);
-            pkt->pos = -1;
-            //Print to Screen
-            if(pkt->stream_index==videoindex) {
-                printf("Receive %8d video frames from input URL\n",frame_index);
-                frame_index++;
-            }
-            ret = av_interleaved_write_frame(ofmt_ctx, pkt);
-            if (ret < 0) {
-                printf( "Error muxing packet\n");
-                break;
-            }
-
-            av_packet_unref(pkt);
-
-            continue;
         }
 
         //读出的帧判断是否是视频帧
@@ -574,26 +477,9 @@ int start_pull(rtmp_client *this0, void *user_data, const char *url)
         FFRTMP_LOG(LOG_DBG, "[ffclient]Finishing timeout %lld\n", ret);
         status = stacode_stream_timeout;
     }
-
-    //Write file trailer
-    if (need_flv) {
-        av_write_trailer(ofmt_ctx);
-    }
     
     end:
     avformat_close_input(&ifmt_ctx);
-    
-    /* close output */
-    if (need_flv) {
-        if (ofmt_ctx && !(ofmt->flags & AVFMT_NOFILE))
-            avio_close(ofmt_ctx->pb);
-        avformat_free_context(ofmt_ctx);
-
-        if (ret < 0 && ret != AVERROR_EOF) {
-            FFRTMP_LOG(LOG_DBG, "Error occurred.\n");
-            return status;
-        }
-    }
     
     return status;
 }
