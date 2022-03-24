@@ -303,10 +303,11 @@ const char *rtmp_codec_name(int codec_id)
     switch (codec_id)
     {
     // audio
-    case AV_CODEC_ID_AAC: { return "acc"; break; }
+    case AV_CODEC_ID_AAC: { return "AAC"; break; }
+    case AV_CODEC_ID_OPUS: { return "OPUS"; break; }
 
     // video
-    case AV_CODEC_ID_H264: { return "h264"; break; }
+    case AV_CODEC_ID_H264: { return "H264"; break; }
 
     default: { return ""; break; }
     }
@@ -421,19 +422,19 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
         }
     }
     FFRTMP_LOG(LOG_DBG, "[ffclient]Got aac_type %d, channels %d, rate %d\n", aac_type, channels, sample_rate);
-    FFRTMP_LOG(LOG_DBG, "[ffclient]Got acodec_id %x, acodec_format %d, frate %d\n",
-        acodec_id, acodec_format, a_frame_rate);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got acodec_id %x(%s:%s), acodec_format %d, frate %d\n",
+        acodec_id, avcodec_get_name(acodec_id), rtmp_codec_name(acodec_id), acodec_format, a_frame_rate);
     FFRTMP_LOG(LOG_DBG, "[ffclient]Got type %d, width %d, height %d\n", video_type, width, height);
-    FFRTMP_LOG(LOG_DBG, "[ffclient]Got vcodec_id %d, vcodec_format %d, frate %d\n",
-        vcodec_id, vcodec_format, v_frame_rate);
+    FFRTMP_LOG(LOG_DBG, "[ffclient]Got vcodec_id %d(%s:%s), vcodec_format %d, frate %d\n",
+        vcodec_id, avcodec_get_name(vcodec_id), rtmp_codec_name(vcodec_id), vcodec_format, v_frame_rate);
     FFRTMP_LOG(LOG_DBG, "[ffclient]Got abit_rate %d, vbit_rate %d\n", abit_rate, vbit_rate);
     if (cb && cb->onVideoReport) {
         cb->onVideoReport(user_data, video_type, width, height, vcodec_format,
-            v_frame_rate, rtmp_codec_name(vcodec_id));
+            v_frame_rate, avcodec_get_name(vcodec_id));
     }
     if (cb && cb->onAudioReport) {
         cb->onAudioReport(user_data, aac_type, channels, sample_rate, acodec_format,
-            a_frame_rate, rtmp_codec_name(acodec_id));
+            a_frame_rate, avcodec_get_name(acodec_id));
     }
     if (cb && cb->onStreamReport) {
         cb->onStreamReport(user_data, vbit_rate, abit_rate);
