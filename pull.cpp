@@ -69,9 +69,11 @@ int callback_on_recv(void *contex, void *user_data, unsigned char *buffer, int l
     return size;
 }
 
-int callback_OnAudioReport(void *user_data, int profile, int channels, int rate)
+int callback_OnAudioReport(void *user_data, int profile, int channels, int sample_rate,
+    int format, int frate, const char *codec)
 {}
-int callback_OnVideoReport(void *user_data, int profile, int width, int height)
+int callback_OnVideoReport(void *user_data, int profile, int width, int height,
+    int format, int frate, const char *codec)
 {}
 int callback_OnStreamReport(void *user_data, int video_bitrate, int audio_bitrate)
 {}

@@ -319,7 +319,7 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
     AVFormatContext *ifmt_ctx = NULL;
     AVPacket *pkt;
     const char *in_filename = NULL;
-    int ret, i;
+    int64_t ret, i;
     int videoindex=-1, audioindex=-1;
     int need_to_annexb = 0, status = 0;
     RtmpClientCallback *cb = this0 ? this0->client_cb : NULL;
@@ -333,6 +333,7 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
     int vbit_rate = 0, abit_rate = 0;
     int vcodec_id = 0, acodec_id = 0;
     int v_frame_rate = 0, a_frame_rate = 0;
+    int v_frate_avg = 0;
     AVDictionary* opts = NULL;
 
     in_filename  = url;
@@ -408,6 +409,9 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
             vcodec_id = ifmt_ctx->streams[i]->codecpar->codec_id;
             if (ifmt_ctx->streams[i]->r_frame_rate.den)
                 v_frame_rate = ifmt_ctx->streams[i]->r_frame_rate.num/ifmt_ctx->streams[i]->r_frame_rate.den;
+            if (ifmt_ctx->streams[i]->avg_frame_rate.den)
+                v_frate_avg = ifmt_ctx->streams[i]->avg_frame_rate.num/ifmt_ctx->streams[i]->avg_frame_rate.den;
+            
             vcodec_format = ifmt_ctx->streams[i]->codecpar->format;
         }
         else if (ifmt_ctx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_AUDIO) {
@@ -549,7 +553,7 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
     }
 
     if (ret < 0) {
-        FFRTMP_LOG(LOG_DBG, "[ffclient]Finishing error %lld\n", ret);
+        FFRTMP_LOG(LOG_DBG, "[ffclient]Finishing error %ld\n", ret);
         status = errcode_ffmpeg_failed;
     }
     if (ret > 0) {
