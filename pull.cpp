@@ -85,9 +85,20 @@ int callback_on_finish(void *contex, void *user_data, int status)
     if (udata && udata->running) *(udata->running) = 0;
     test_running = 0;
 }
-int callback_on_debug(const char *buffer)
+
+int callback_on_debug(const char *format, ...)
 {
-    if (buffer) printf("%s\n", buffer);
+    int len;
+    char buffer[3000] = {0};
+    va_list ap;
+	va_start(ap, format);
+	len = vsnprintf(buffer, sizeof(buffer)-1, format, ap);
+	va_end(ap);
+	if (len >= sizeof(buffer)) {
+		printf("log to long...\n");
+	} else {
+        printf("%s", buffer);
+    }
 }
 
 RtmpClientCallback user_callback = {
@@ -284,5 +295,13 @@ int main(int argc, char* argv[])
     if (contex) {
         rtmp_client_stop(contex);
     }
+
+    ret = pthread_create(&watch_doggy, NULL, walker_doggy, &test_running);
+    if (ret < 0) {
+        return 0;
+    }
+    test_running = 3;
+    
+    pthread_join(watch_doggy, &retval);
     return retval;
 }

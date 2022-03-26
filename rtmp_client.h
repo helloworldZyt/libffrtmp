@@ -29,7 +29,7 @@ typedef int (*RtmpClientOnVideoReport)(void *user_data, int profile, int width, 
     int format, int frate, const char *codec);
 typedef int (*RtmpClientOnStreamReport)(void *user_data, int video_bitrate, int audio_bitrate);
 typedef int (*RtmpClientOnFinish)(void *contex, void *user_data, int status);
-typedef int (*RtmpClientOnDebug)(const char *buffer);
+typedef int (*RtmpClientOnDebug)(const char *format, ...);
 
 typedef struct rtmp_client_callback_st
 {

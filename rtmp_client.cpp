@@ -654,6 +654,9 @@ void rtmp_client_stop(void *contex)
     FFRTMP_LOG(LOG_DBG, "[ffclient]stop rtmp client: %s!\n", client ? client->client_url.c_str() : "-?-");
     if (client)
     {
+        if (client->client_cb && client->client_cb->onDebug) {
+            client->client_cb->onDebug("client %p, ctx %p, stoped!\n", client->client_user_data, client);
+        }
         client->rtmpclient_stop();
     }
     
