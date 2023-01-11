@@ -50,6 +50,7 @@ public:
     string client_url;
     void *client_user_data;
     std::atomic_int client_runing;
+    std::atomic_int client_stoped;
     std::thread t0;
     int open_timeout;
     int recv_timeout;
@@ -65,7 +66,7 @@ public:
 };
 
 rtmp_client::rtmp_client(const char *url, void *user_data, int otm, int rtm, RtmpClientCallback *cb):
-client_runing(0), open_timeout(10), recv_timeout(3)
+client_runing(0), open_timeout(10), recv_timeout(3), client_stoped(0)
 {
     client_url = url;
     client_cb = new RtmpClientCallback;
@@ -92,6 +93,7 @@ client_runing(0), open_timeout(10), recv_timeout(3)
 rtmp_client::~rtmp_client()
 {
     client_url = "";
+    t0.join();
     if (client_cb)
     {
         client_cb->onFinish = NULL;
@@ -316,7 +318,7 @@ const char *rtmp_codec_name(int codec_id)
 int walker_running(rtmp_client *this0, void *user_data, const char *url)
 {
     RWDataContext *contex;
-    AVFormatContext *ifmt_ctx = NULL;
+    AVFormatContext *ifmt_ctx = NULL, *ofmt_ctx = NULL;
     AVPacket *pkt;
     const char *in_filename = NULL;
     int64_t ret, i;
@@ -335,6 +337,8 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
     int v_frame_rate = 0, a_frame_rate = 0;
     int v_frate_avg = 0;
     AVDictionary* opts = NULL;
+    int need_flv = 0;
+    const char *out_file = "/data/rtmptest.flv";
 
     in_filename  = url;
     
@@ -443,11 +447,70 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
     if (cb && cb->onStreamReport) {
         cb->onStreamReport(user_data, vbit_rate, abit_rate);
     }
+    need_flv = 1;
+    if (need_flv)
+    {
+        avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_file); //RTMP
+        if (!ofmt_ctx) {
+            FFRTMP_LOG(LOG_ERR, "Could not create output context\n");
+            ret = AVERROR_UNKNOWN;
+            status = errcode_ffmpeg_failed;
+            goto end;
+        }
+        const AVOutputFormat *ofmt = ofmt_ctx->oformat;
+        for (i = 0; i < ifmt_ctx->nb_streams; i++) {
+            //Create output AVStream according to input AVStream
+            AVStream *in_stream = ifmt_ctx->streams[i];
+            //AVStream *out_stream = avformat_new_stream(ofmt_ctx, in_stream->codec->codec);
+            const AVCodec *codec = avcodec_find_decoder(in_stream->codecpar->codec_id);
+            AVStream *out_stream = avformat_new_stream(ofmt_ctx , codec);
+
+            if (!out_stream) {
+                FFRTMP_LOG(LOG_ERR, "Failed allocating output stream\n");
+                ret = AVERROR_UNKNOWN;
+                goto end;
+            }
+
+            AVCodecContext *p_codec_ctx = (AVCodecContext *)avcodec_alloc_context3(codec);
+            ret = avcodec_parameters_to_context(p_codec_ctx , (const AVCodecParameters *)in_stream->codecpar);
+
+            //Copy the settings of AVCodecContext
+            if (ret < 0) {
+                FFRTMP_LOG(LOG_ERR, "Failed to copy context from input to output stream codec context\n");
+                goto end;
+            }
+            p_codec_ctx->codec_tag = 0;
+            if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER)
+                p_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+            ret = avcodec_parameters_from_context(out_stream->codecpar, p_codec_ctx);
+            if(ret < 0){
+                av_log(NULL , AV_LOG_ERROR , "eno:[%d] error to paramters codec paramter \n" , ret);
+            }
+        }
+
+        //Dump Format------------------
+        av_dump_format(ofmt_ctx, 0, out_file, 1);
+        //Open output URL
+        if (!(ofmt->flags & AVFMT_NOFILE)) {
+            ret = avio_open(&ofmt_ctx->pb, out_file, AVIO_FLAG_WRITE);
+            if (ret < 0) {
+                FFRTMP_LOG(LOG_DBG, "Could not open output URL '%s'", out_file);
+                goto end;
+            }
+        }
+        //Write file header
+        ret = avformat_write_header(ofmt_ctx, NULL);
+        if (ret < 0) {
+            FFRTMP_LOG(LOG_DBG, "Error occurred when opening output URL\n");
+            goto end;
+        }
+    }
 
     //拉流
     while (this0->client_runing)
     {
-        AVStream *in_stream;
+        AVStream *in_stream = NULL, *out_stream = NULL;
+        int frame_index = 0;
         //Get an AVPacket
         contex->last_time = time(NULL);
         ret = av_read_frame(ifmt_ctx, pkt);
@@ -480,6 +543,31 @@ int walker_running(rtmp_client *this0, void *user_data, const char *url)
                 cb->onStreamReport(user_data, vbit_rate, abit_rate);
             }
             stream_changed = 0;
+        }
+
+        if (need_flv) {
+            in_stream  = ifmt_ctx->streams[pkt->stream_index];
+            out_stream = ofmt_ctx->streams[pkt->stream_index];
+            /* copy packet */
+            //Convert PTS/DTS
+            pkt->pts = av_rescale_q_rnd(pkt->pts, in_stream->time_base, out_stream->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+            pkt->dts = av_rescale_q_rnd(pkt->dts, in_stream->time_base, out_stream->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+            pkt->duration = av_rescale_q(pkt->duration, in_stream->time_base, out_stream->time_base);
+            pkt->pos = -1;
+            //Print to Screen
+            if(pkt->stream_index==videoindex) {
+                FFRTMP_LOG(LOG_DBG, "Receive %8d video frames from input URL\n",frame_index);
+                frame_index++;
+            }
+            ret = av_interleaved_write_frame(ofmt_ctx, pkt);
+            if (ret < 0) {
+                FFRTMP_LOG(LOG_DBG, "Error muxing packet\n");
+                break;
+            }
+
+            av_packet_unref(pkt);
+
+            continue;
         }
 
         //读出的帧判断是否是视频帧
@@ -595,6 +683,7 @@ void func_client_run(void *instance, void *arg)
         cb->onFinish((void *)this0, (void *)this0->client_user_data, 0);
     }
 
+    this0->client_stoped++;
     FFRTMP_LOG(LOG_DBG, "[ffclient] %s stop!\n", this0->client_url.c_str());
 
     // client_threads.emplace_back(std::move(this0->t0));
@@ -658,6 +747,8 @@ void rtmp_client_stop(void *contex)
             client->client_cb->onDebug("client %p, ctx %p, stoped!\n", client->client_user_data, client);
         }
         client->rtmpclient_stop();
+        while (client->client_stoped == 0) usleep(10000);
+        delete client;
     }
     
     return;

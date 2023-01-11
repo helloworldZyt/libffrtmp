@@ -303,5 +303,7 @@ int main(int argc, char* argv[])
     test_running = 3;
     
     pthread_join(watch_doggy, &retval);
+
+    getc(stdin);
     return retval;
 }
